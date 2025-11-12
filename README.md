@@ -229,9 +229,63 @@ For each hexagon:
      - Typically 1-3 search points per hexagon
 
 2. **Parent-Child Relationship Tracking**
-   - Maintains `parentChildRelationships` map
-   - Tracks which parent hexagon split into which children
-   - Used for result aggregation
+   - Maintains two maps:
+     - `parentChildRelationships: Map<string, string[]>` - maps parent H3 ID → array of child H3 IDs
+     - `childParentRelationships: Map<string, string>` - maps child H3 ID → parent H3 ID
+   - Relationships are established when `handleDenseHexagons()` is called during Phase 1
+   - Used for result aggregation and merging
+
+3. **Result Deduplication Strategy**
+
+   **Important Note on Business Deduplication:**
+   
+   When a parent hexagon is split:
+   - **Phase 1**: Parent hexagon returns its businesses with status `'split'`
+   - **Phase 2**: Child hexagons are processed and return their businesses
+   - **Raw Results Array**: Contains BOTH parent and child result objects (line 209: `results = [...phase1Results, ...phase2Results]`)
+   
+   **Deduplication Levels:**
+   
+   1. **Within Search Points**: Businesses are deduplicated by `id` within each hexagon's search results (handled in `deduplicateBusinesses()`)
+   
+   2. **Within Child Hexagons**: When merging child results, `mergeSubHexagonResults()` deduplicates businesses across children by `id`
+   
+   3. **Count Replacement**: In `getMergedResults()`, when all children are processed:
+      - Parent's `totalBusinesses` count is REPLACED with aggregated child total
+      - This prevents double-counting in statistics
+      - However, parent's `uniqueBusinesses` array remains in the raw `results` array
+   
+   4. **UI-Level Deduplication**: Final deduplication happens in `HexagonDisplay.getAllRestaurants()`:
+      - Flattens all businesses from all result objects
+      - Deduplicates by business `id` using a `Map<string, YelpBusiness>`
+      - This ensures no duplicate businesses appear in the UI
+   
+   **Current Behavior:**
+   - ✅ Parent-child relationships are tracked
+   - ✅ Business counts are deduplicated (parent count replaced with child aggregate)
+   - ⚠️ Business arrays contain duplicates: Parent businesses appear in parent result object AND may appear again in child result objects
+   - ✅ UI layer handles final deduplication for display
+   
+   **Example:**
+   ```
+   Parent Hexagon (R7): Finds 300 businesses → Status: 'split'
+   ├─ Child 1 (R8): Finds 50 businesses
+   ├─ Child 2 (R8): Finds 45 businesses (5 overlap with Child 1)
+   └─ Child 3 (R8): Finds 40 businesses (10 overlap with Child 1)
+   
+   Raw Results Array:
+   - Parent result: { h3Id: 'parent', uniqueBusinesses: [300 businesses], status: 'split' }
+   - Child 1 result: { h3Id: 'child1', uniqueBusinesses: [50 businesses] }
+   - Child 2 result: { h3Id: 'child2', uniqueBusinesses: [45 businesses] }
+   - Child 3 result: { h3Id: 'child3', uniqueBusinesses: [40 businesses] }
+   
+   Merged Results:
+   - Parent: { totalBusinesses: 135, isParent: true, hasChildren: true }
+     (Count replaced with child aggregate, but parent's 300 businesses still in raw array)
+   
+   UI Display:
+   - getAllRestaurants() deduplicates all businesses by ID → ~135 unique businesses shown
+   ```
 
 **Final Response Payload:**
 ```typescript
@@ -313,6 +367,13 @@ For each hexagon:
 ### **Business Validation**
 - **Method**: H3 `latLngToCell()` to verify business is within hexagon
 - **Fallback**: Includes business if validation fails (fail-safe approach)
+
+### **Parent-Child Deduplication**
+- **Relationship Tracking**: Both `parentChildRelationships` and `childParentRelationships` maps are maintained
+- **Count Deduplication**: Parent business counts are replaced with child aggregates in `getMergedResults()`
+- **Array Deduplication**: Business arrays may contain duplicates between parent and child results
+- **UI Deduplication**: Final deduplication by business `id` happens in `HexagonDisplay.getAllRestaurants()`
+- **Note**: The raw API response includes both parent and child result objects; deduplication is handled at the UI layer
 
 ### **Error Handling & Fallbacks**
 
