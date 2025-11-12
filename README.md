@@ -1,380 +1,441 @@
 # 🗺️ City Polygon Viewer with Advanced Yelp Integration
 
-A sophisticated geospatial web application that combines city boundary visualization with intelligent business discovery using H3 hexagon grids and the Yelp API. This isn't just a simple map viewer—it's a comprehensive business intelligence platform that demonstrates advanced geospatial processing, API management, and data visualization techniques.
+A sophisticated geospatial web application that combines city boundary visualization with intelligent business discovery using H3 hexagon grids and the Yelp API. This application demonstrates advanced geospatial processing, API management, and data visualization techniques.
 
 ## 🌟 Overview
 
 This application transforms city boundary data into a powerful business discovery tool by:
-- Fetching precise city boundaries from OpenStreetMap
-- Generating H3 hexagon grids for systematic area coverage
-- Performing intelligent business searches using the Yelp API
-- Automatically subdividing dense areas for complete coverage
-- Providing multiple visualization methods for data exploration
-
-## 🚀 Key Features
-
-### 🏙️ **Advanced City Boundary Processing**
-- **Multi-Strategy Boundary Fetching**: Uses three different Overpass API strategies with intelligent fallbacks
-- **Precise GeoJSON Rendering**: No simplification—shows exact city boundaries as stored in OSM
-- **Multi-Polygon Support**: Handles complex cities with multiple boundary areas
-- **Buffered Coverage**: Creates 1km buffer zones to ensure edge-case businesses aren't missed
-
-### 🌐 **H3 Hexagon Grid System**
-- **Resolution 7 Grids**: ~4.8 km² hexagons for optimal business coverage
-- **Automatic Subdivision**: Dense areas (>240 businesses) split into Resolution 8 hexagons
-- **Smart Coverage Strategy**: Multi-point search system ensures complete hexagon coverage
-- **Geographic Validation**: Businesses filtered to ensure they're actually within hexagon boundaries
-
-### 🍕 **Intelligent Yelp Integration**
-- **Multi-Point Search**: Each hexagon searched from multiple strategic points
-- **Pagination Handling**: Automatically fetches all available results (up to 200 per search)
-- **Business Deduplication**: Smart filtering removes duplicate businesses across search points
-- **Rate Limiting**: Sophisticated API management (50 req/sec, 5,000/day limits)
-- **Quota Management**: Real-time tracking and optimization recommendations
-
-### 📊 **Advanced Data Visualization**
-- **Three Display Methods**: Expandable cards, tabbed interface, and searchable accordion
-- **Real-Time Statistics**: Processing progress, quota usage, and coverage quality metrics
-- **Interactive Maps**: Toggle layers, zoom controls, and hexagon numbering
-- **Search & Filter**: Find businesses by name, category, or hexagon status
+- Fetching precise city boundaries from OpenStreetMap using multiple query strategies
+- Generating H3 hexagon grids (Resolution 7) for systematic area coverage
+- Performing intelligent business searches using the Yelp Fusion API
+- Automatically subdividing dense areas (>240 businesses) into Resolution 8 hexagons
+- Providing interactive visualization with map layers and business data
 
 ## 🏗️ Architecture
 
 ### **Frontend Stack**
-- **Next.js 15** with App Router for modern React development
-- **TypeScript** for type safety and better developer experience
-- **Tailwind CSS** for responsive, modern UI design
-- **Leaflet** for interactive mapping with custom styling
-- **React Hook Form** for efficient form handling
+- **Next.js 15** with App Router
+- **TypeScript** for type safety
+- **Tailwind CSS** for styling
+- **Leaflet** for interactive mapping
+- **React Hook Form** for form handling
 
 ### **Backend Services**
 - **OpenStreetMap Overpass API** for city boundary data
 - **Nominatim API** as fallback for boundary fetching
-- **Yelp Fusion API** for business search and discovery
-- **H3-JS** for hexagon grid generation and manipulation
-- **Turf.js** for geospatial calculations and buffering
+- **Yelp Fusion API** for business search
+- **H3-JS** for hexagon grid generation
+- **Turf.js** for geospatial calculations
 
 ### **Core Libraries**
 - **@turf/turf**: Geospatial analysis and polygon operations
-- **h3-js**: H3 hexagon grid system for geographic indexing
-- **leaflet.markercluster**: Efficient marker clustering for large datasets
+- **h3-js**: H3 hexagon grid system
+- **leaflet.markercluster**: Marker clustering
 
-## 🎯 How It Works
+## 🎯 How It Works - Complete Process Flow
 
-### **Phase 1: City Boundary Acquisition**
-1. **Input Processing**: User enters city name in "City, State" format
-2. **Multi-Strategy Search**: Three Overpass API strategies executed in sequence:
-   - Standard city boundaries (admin_level 7-8)
-   - Comprehensive search (all boundary types)
-   - Aggressive search (any matching geographic feature)
-3. **Boundary Selection**: Intelligent algorithm selects best boundary based on:
-   - Administrative level priority
-   - Geographic completeness
-   - Data quality indicators
-4. **Fallback Handling**: Nominatim API used if Overpass strategies fail
+### **Step 1: City Boundary Acquisition**
 
-### **Phase 2: H3 Grid Generation**
-1. **Buffered Polygon Creation**: 1km buffer added around city boundary
-2. **Hexagon Grid Generation**: H3 hexagons generated to cover buffered area
-3. **Resolution Optimization**: Resolution 7 hexagons (~4.8 km²) for optimal coverage
-4. **Grid Statistics**: Coverage area, hexagon count, and size calculations
+**User Input:**
+- Format: `"City, State"` (e.g., `"Miami, FL"`)
+- Sent via GET request to `/api/city?name={cityName}`
 
-### **Phase 3: Business Discovery**
-1. **Multi-Point Search Strategy**: Each hexagon searched from multiple points:
-   - Center point with optimized radius
-   - Corner points for edge coverage
-   - Edge midpoints for complete coverage
-2. **Adaptive Coverage**: Search point count based on hexagon size:
-   - Small hexagons (<3 km²): 1 search point
-   - Medium hexagons (3-8 km²): 3 search points
-   - Large hexagons (>8 km²): 5+ search points
-3. **Yelp API Integration**: Paginated searches with rate limiting
-4. **Business Validation**: H3 boundary checking ensures accuracy
+**Process:**
+1. **Overpass API Strategy 1** (Standard City Boundaries)
+   - Query: Searches for `relation` elements with:
+     - `boundary=administrative` AND `admin_level` 7 or 8
+     - `place=city` with matching name
+     - Bounded by state bounding box
+   - Payload: Overpass QL query string
+   - Returns: `{ elements: Array<OverpassElement> }`
+   - Fallback: If no results, proceed to Strategy 2
 
-### **Phase 4: Dense Area Processing**
-1. **Density Detection**: Hexagons with >240 businesses flagged for subdivision
-2. **Automatic Splitting**: Dense hexagons split into Resolution 8 sub-hexagons
-3. **Subdivision Queue**: Child hexagons queued for separate processing
-4. **Result Aggregation**: Parent and child results merged for complete view
+2. **Overpass API Strategy 2** (Comprehensive Search)
+   - Query: Broader search including:
+     - Any `boundary` relation
+     - `place` values: city, town, municipality
+     - `way` and `node` elements with boundary/place tags
+   - Payload: Overpass QL query string
+   - Returns: `{ elements: Array<OverpassElement> }`
+   - Fallback: If no results, proceed to Strategy 3
 
-## 🎮 User Interface Guide
+3. **Overpass API Strategy 3** (Aggressive Search)
+   - Query: Most permissive search:
+     - Any relation/way/node with matching name
+     - Includes `landuse` tags (residential, municipal)
+   - Payload: Overpass QL query string
+   - Returns: `{ elements: Array<OverpassElement> }`
+   - Fallback: If no results, proceed to Nominatim
 
-### **Main Search Interface**
-- **City Input**: Enter city name in "City, State" format (e.g., "Miami, FL")
-- **Search Button**: Initiates the complete city analysis process
-- **Loading States**: Real-time progress indicators during processing
-- **Error Handling**: Clear error messages with helpful suggestions
+4. **Boundary Selection**
+   - Algorithm prioritizes by:
+     1. `admin_level=8` + `place=city` (highest priority)
+     2. `admin_level=7` + `place=city`
+     3. `admin_level=8` (any)
+     4. `admin_level=7` (any)
+     5. `place=city` (any)
+     6. `place=town`
+     7. `boundary=administrative` (any)
+     8. Any valid element with geometry
+   - Converts selected element to GeoJSON using `osmRelationToGeoJSON()`
+   - Calculates bounding box: `[minLon, minLat, maxLon, maxLat]`
 
-### **Map Visualization**
-- **Layer Controls**: Toggle visibility of different map elements:
-  - City Boundary (blue): Original city limits
-  - Buffered Area (purple): 1km expansion zone
-  - H3 Grid (green): Hexagon coverage areas
-  - Hexagon Numbers (orange): Correlation with data tables
-- **Interactive Features**: Zoom, pan, and click for detailed information
-- **Restaurant Markers**: Clustered markers showing discovered businesses
+5. **Nominatim Fallback** (if all Overpass strategies fail)
+   - Request: `GET https://nominatim.openstreetmap.org/search?format=jsonv2&polygon_geojson=1&q={cityName}`
+   - Headers: `User-Agent` required
+   - Returns: `Array<NominatimResult>` with `geojson` property
+   - Selection: Prefers `class=boundary` + `type=administrative`, otherwise first result with polygon
 
-### **Data Display Methods**
-
-#### **Method 1: Expandable Hexagon Cards**
-- **Grid Layout**: Responsive card grid showing all processed hexagons
-- **Quick Stats**: Business count and status at a glance
-- **Expandable Details**: Click to see full business listings
-- **Status Indicators**: Color-coded status (fetched, failed, dense, split)
-
-#### **Method 2: Tabbed Interface**
-- **Summary Tab**: Overview statistics and progress tracking
-- **Details Tab**: Individual hexagon processing results
-- **Restaurants Tab**: Complete business directory with filtering
-
-#### **Method 3: Searchable Accordion**
-- **Search Box**: Filter by business name, category, or hexagon status
-- **Accordion Layout**: Expandable sections for detailed exploration
-- **Real-time Filtering**: Instant results as you type
-
-### **Yelp Integration Controls**
-- **Test Mode Toggle**: Safe testing with limited API usage
-- **API Call Estimation**: Real-time quota usage predictions
-- **Processing Status**: Live updates on hexagon processing
-- **Quota Monitoring**: Daily and per-second usage tracking
-
-## 🔧 Technical Implementation
-
-### **API Rate Limiting**
+**Response Payload:**
 ```typescript
-// Sophisticated rate limiting system
-class RateLimiter {
-  private maxPerSecond: number = 50;
-  private maxPerDay: number = 5000;
-  
-  async waitForSlot(): Promise<void> {
-    // Queue management with exponential backoff
-  }
+{
+  name: string;
+  bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  geojson: Feature<Polygon | MultiPolygon>;
+  osm_id: number;
+  source: 'overpass' | 'nominatim';
 }
 ```
 
-### **H3 Grid Processing**
+### **Step 2: Enhanced City Response Creation**
+
+**Process:**
+1. **Buffered Polygon Creation**
+   - Input: Original GeoJSON polygon
+   - Buffer: 1km (1000 meters) using `turf.buffer()`
+   - Purpose: Ensures edge-case businesses aren't missed
+   - Returns: Buffered `Feature<Polygon | MultiPolygon>`
+   - Fallback: If buffering fails, returns original polygon
+
+2. **H3 Grid Generation**
+   - Input: Buffered polygon
+   - Resolution: 7 (base resolution, ~4.8 km² per hexagon)
+   - Method: `h3.polygonToCells()` - generates hexagons exactly clipped to polygon boundary
+   - Returns: `Array<string>` of H3 cell IDs
+   - Fallback: If `polygonToCells` fails, falls back to center-based generation with `gridDisk()`
+
+3. **Grid Statistics Calculation**
+   - Calculates:
+     - `total_hexagons`: Count of H3 cells
+     - `resolution`: 7
+     - `avg_hexagon_size_km`: ~4.8 km² (from `h3.hexArea()`)
+     - `coverage_area_km2`: `total_hexagons * avg_hexagon_size_km`
+
+**Enhanced Response Payload:**
 ```typescript
-// Intelligent hexagon subdivision
-export function splitHexagon(
-  h3Id: string, 
-  currentResolution: number = 7, 
-  targetResolution: number = 8
-): HexagonSplitResult {
-  const childHexagons = h3.cellToChildren(h3Id, targetResolution);
-  // Process subdivision with quota management
+{
+  ...baseResponse,
+  buffered_polygon: Feature<Polygon | MultiPolygon>;
+  h3_grid: string[]; // Array of H3 cell IDs
+  grid_stats: {
+    total_hexagons: number;
+    resolution: number; // 7
+    avg_hexagon_size_km: number; // ~4.8
+    coverage_area_km2: number;
+  };
 }
 ```
+
+### **Step 3: Yelp Business Discovery (Two-Phase Processing)**
+
+**User Action:**
+- Clicks "Process Hexagons" button in Yelp Integration component
+- Payload sent to `/api/yelp` POST endpoint:
+```typescript
+{
+  action: 'process_hexagons';
+  hexagons: Array<{ h3Id: string; mapIndex: number; originalIndex: number }>;
+  testMode: boolean; // Limits to 10 hexagons if true
+}
+```
+
+**Phase 1: Process Resolution 7 Hexagons**
+
+For each hexagon:
+
+1. **Quota Check**
+   - Checks `yelpQuotaManager.estimateQuotaForCity()`
+   - Estimates: `hexagonCount * 7 search points * 1.5 pages`
+   - Validates against daily limit (5,000 calls) and per-second limit (50 calls)
+   - Fallback: Returns error if insufficient quota (unless test mode)
+
+2. **Search Point Generation** (`generateSearchPoints()`)
+   - Calculates hexagon center: `h3.cellToLatLng(h3Id)`
+   - Gets hexagon boundary: `h3.cellToBoundary(h3Id, true)`
+   - Calculates optimal radius: Distance from center to furthest corner (capped at H3 resolution 7 inradius ~1.06km)
+   - Adaptive coverage based on hexagon area:
+     - **<3 km²**: 1 search point (center only)
+     - **3-8 km²**: 3 search points (center + 2 corners)
+     - **>8 km²**: 5+ search points (center + 3 corners + 2 edge midpoints)
+   - Returns: `HexagonCoverage` with search points array
+
+3. **Yelp API Search** (for each search point)
+   - Rate Limiting: `yelpRateLimiter.waitForSlot()` - ensures ≤50 req/sec
+   - Quota Tracking: `yelpQuotaManager.trackAPICall()`
+   - Request: `GET https://api.yelp.com/v3/businesses/search`
+     - Query params:
+       - `latitude`: Search point lat
+       - `longitude`: Search point lng
+       - `radius`: Calculated radius in meters
+       - `categories`: `'restaurants'`
+       - `limit`: `50` (max per page)
+       - `offset`: `0, 50, 100, 150` (for pagination)
+   - Headers: `Authorization: Bearer {YELP_API_KEY}`
+   - Pagination: Fetches up to 200 results (4 pages max) per search point
+   - Response: `{ total: number; businesses: Array<YelpBusiness>; region: object }`
+
+4. **Business Deduplication**
+   - Combines businesses from all search points
+   - Removes duplicates by business `id`
+   - Returns: `Array<YelpBusiness>` (unique)
+
+5. **Boundary Validation**
+   - Filters businesses to ensure they're within hexagon boundaries
+   - Method: `h3.latLngToCell(business.coords, resolution)` must match hexagon H3 ID
+   - Returns: Validated businesses array
+   - Fallback: If validation fails for a business, includes it anyway (fail-safe)
+
+6. **Density Detection**
+   - Checks if `totalBusinesses > 240`
+   - If dense:
+     - Calls `splitHexagon(h3Id, 7, 8)` - splits into ~7 child hexagons
+     - Queues child hexagons in `hexagonProcessor.subdivisionQueue`
+     - Returns status: `'split'`
+   - If not dense:
+     - Returns status: `'fetched'`
+
+**Phase 1 Result:**
+```typescript
+{
+  h3Id: string;
+  mapIndex?: number;
+  totalBusinesses: number;
+  uniqueBusinesses: YelpBusiness[];
+  searchResults: YelpSearchResult[];
+  status: 'fetched' | 'split' | 'failed';
+  coverageQuality: 'excellent' | 'good' | 'fair' | 'poor';
+  error?: string;
+}
+```
+
+**Phase 2: Process Subdivision Queue (Resolution 8 Hexagons)**
+
+1. **Subdivision Queue Processing**
+   - Processes all hexagons queued from Phase 1 splits
+   - Each child hexagon processed at Resolution 8 (~0.7 km² per hexagon)
+   - Same search process as Phase 1, but with:
+     - Higher resolution (8 instead of 7)
+     - Smaller hexagon area
+     - Typically 1-3 search points per hexagon
+
+2. **Parent-Child Relationship Tracking**
+   - Maintains `parentChildRelationships` map
+   - Tracks which parent hexagon split into which children
+   - Used for result aggregation
+
+**Final Response Payload:**
+```typescript
+{
+  success: true;
+  results: HexagonYelpResult[]; // Phase 1 + Phase 2 results
+  processingStats: {
+    queued: number;
+    processing: number;
+    completed: number;
+    failed: number;
+    split: number;
+    resolution7: number;
+    resolution8: number;
+    subdivisionQueue: number;
+  };
+  quotaStatus: {
+    dailyUsed: number;
+    dailyRemaining: number;
+    perSecondUsed: number;
+    perSecondRemaining: number;
+  };
+  subdivisionQueueStatus: {
+    queuedCount: number;
+    completedCount: number;
+    failedCount: number;
+  };
+  resultsByResolution: {
+    resolution7: HexagonProcessingStatus[];
+    resolution8: HexagonProcessingStatus[];
+  };
+  mergedResults: Array<{
+    h3Id: string;
+    resolution: number;
+    status: string;
+    totalBusinesses: number;
+    isParent: boolean;
+    hasChildren: boolean;
+    childrenSummary?: object;
+  }>;
+  testMode: boolean;
+  processedAt: string;
+}
+```
+
+### **Step 4: Data Visualization**
+
+**Map Layers:**
+1. **City Boundary** (blue): Original city limits from GeoJSON
+2. **Buffered Area** (purple): 1km buffer zone
+3. **H3 Grid** (green): Hexagon boundaries rendered from H3 cell IDs
+4. **Hexagon Numbers** (orange): Labels showing hexagon index for correlation
+5. **Restaurant Markers**: Clustered markers from Yelp results
+
+**Display Components:**
+- **HexagonDisplay**: Shows hexagon cards with business counts and status
+- **YelpIntegration**: Controls for processing hexagons and viewing results
+- **MapControls**: Toggle visibility of map layers
+
+## 🔧 Key Technical Details
+
+### **Rate Limiting**
+- **Per-Second Limit**: 50 requests/second
+- **Daily Limit**: 5,000 requests/day
+- **Implementation**: `RateLimiter` class with queue management
+- **Fallback**: Exponential backoff on rate limit errors
+
+### **Quota Management**
+- **Tracking**: Real-time daily and per-second usage
+- **Estimation**: `estimateQuotaForCity()` calculates needed calls
+- **Risk Levels**: low, medium, high, critical
+- **Fallback**: Blocks processing if quota insufficient (unless test mode)
+
+### **Search Point Optimization**
+- **Radius Calculation**: Based on H3 hexagon inradius (~1.06km for resolution 7)
+- **Adaptive Coverage**: More points for larger hexagons
+- **No Hard Caps**: Removed arbitrary 3km radius limits, uses H3-based calculations
 
 ### **Business Validation**
-```typescript
-// Ensure businesses are within hexagon boundaries
-private validateBusinessBoundaries(h3Id: string, businesses: YelpBusiness[]): YelpBusiness[] {
-  return businesses.filter(business => {
-    const businessH3Id = h3.latLngToCell(
-      business.coordinates.latitude, 
-      business.coordinates.longitude, 
-      h3.getResolution(h3Id)
-    );
-    return businessH3Id === h3Id;
-  });
-}
-```
+- **Method**: H3 `latLngToCell()` to verify business is within hexagon
+- **Fallback**: Includes business if validation fails (fail-safe approach)
 
-## 📊 Data Flow
+### **Error Handling & Fallbacks**
 
-```mermaid
-graph TD
-    A[User Input: City, State] --> B[Overpass API Search]
-    B --> C[Boundary Selection]
-    C --> D[Buffered Polygon Creation]
-    D --> E[H3 Grid Generation]
-    E --> F[Multi-Point Search Strategy]
-    F --> G[Yelp API Calls]
-    G --> H[Business Validation]
-    H --> I[Density Detection]
-    I --> J{>240 Businesses?}
-    J -->|Yes| K[Hexagon Subdivision]
-    J -->|No| L[Result Aggregation]
-    K --> M[Subdivision Processing]
-    M --> L
-    L --> N[Data Visualization]
-```
+1. **Overpass API Failures**
+   - Retry logic: 3 attempts with exponential backoff
+   - Fallback: Nominatim API
+   - Fallback: Returns error if all strategies fail
+
+2. **Yelp API Failures**
+   - Rate limit handling: Automatic retry with backoff
+   - Quota exceeded: Blocks processing, returns error
+   - Network errors: Retry with exponential backoff
+   - Individual hexagon failures: Marked as `'failed'`, processing continues
+
+3. **H3 Grid Generation Failures**
+   - `polygonToCells` failure: Falls back to center-based `gridDisk()`
+   - Invalid polygon: Returns empty grid array
+
+4. **Buffering Failures**
+   - If `turf.buffer()` fails: Returns original polygon
 
 ## 🚀 Getting Started
 
 ### **Prerequisites**
-- Node.js 18+ 
+- Node.js 18+
 - npm or yarn
-- Yelp Fusion API key (for full functionality)
+- Yelp Fusion API key
 
 ### **Installation**
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd city-polygon-viewer
+cd cylone2
 
 # Install dependencies
 npm install
 
 # Set up environment variables
-cp .env.example .env.local
-# Add your Yelp API key to .env.local
-YELP_API_KEY=your_yelp_api_key_here
+# Create .env.local file:
+YELP_API_KEY=your_yelp_fusion_api_key
 
 # Start development server
 npm run dev
 ```
 
 ### **Environment Configuration**
-Create a `.env.local` file with:
+Create `.env.local`:
 ```env
 YELP_API_KEY=your_yelp_fusion_api_key
 ```
 
 ### **Available Scripts**
 ```bash
-npm run dev          # Start development server with Turbopack
-npm run build        # Build for production
-npm run start        # Start production server
-npm run lint         # Run ESLint
+npm run dev    # Start development server with Turbopack
+npm run build  # Build for production
+npm run start  # Start production server
+npm run lint   # Run ESLint
 ```
 
-## 🌍 Example Cities to Try
+## 📊 Project Structure
 
-### **US Cities**
-- **Miami, FL** - Large city with complex boundary and dense business areas
-- **Key Biscayne, FL** - Island municipality with precise coastline
-- **San Francisco, CA** - Peninsula city with natural boundaries
-- **Manhattan, NY** - Dense urban area perfect for subdivision testing
-- **Austin, TX** - Growing city with mixed urban/suburban areas
-
-### **International Cities**
-- **Paris, France** - Complex administrative boundaries
-- **London, UK** - Multi-polygon city with historical boundaries
-- **Tokyo, Japan** - Dense urban area with extensive business coverage
-
-## 📈 Performance Optimizations
-
-### **API Efficiency**
-- **Intelligent Caching**: Repeated searches use cached results
-- **Quota Optimization**: Smart batching to maximize API usage
-- **Rate Limiting**: Prevents API quota exhaustion
-- **Error Recovery**: Automatic retry with exponential backoff
-
-### **UI Performance**
-- **Virtual Scrolling**: Efficient rendering of large datasets
-- **Marker Clustering**: Optimized map performance with many markers
-- **Lazy Loading**: Components loaded only when needed
-- **Memory Management**: Proper cleanup of map instances
-
-### **Geospatial Optimizations**
-- **H3 Efficiency**: Fast geographic indexing and queries
-- **Boundary Validation**: Efficient point-in-polygon testing
-- **Grid Optimization**: Adaptive search point generation
-- **Subdivision Logic**: Smart dense area detection
-
-## 🔍 Advanced Features
-
-### **Two-Phase Processing Algorithm**
-1. **Phase 1**: Process all hexagons at Resolution 7
-2. **Phase 2**: Process subdivision queue at Resolution 8
-3. **Result Merging**: Combine parent and child results intelligently
-
-### **Coverage Quality Assessment**
-- **Excellent**: 7+ search points, 100+ businesses
-- **Good**: 5+ search points, 50+ businesses  
-- **Fair**: 3+ search points, 20+ businesses
-- **Poor**: <3 search points, <20 businesses
-
-### **Quota Management System**
-- **Daily Tracking**: 5,000 API calls per day limit
-- **Per-Second Limiting**: 50 requests per second maximum
-- **Usage Projections**: Predictive quota consumption modeling
-- **Optimization Recommendations**: Smart suggestions for efficient usage
-
-## 🛠️ Development
-
-### **Project Structure**
 ```
 src/
 ├── app/
 │   ├── api/
-│   │   ├── city/route.ts      # City boundary API
-│   │   └── yelp/route.ts      # Yelp integration API
+│   │   ├── city/route.ts      # City boundary API endpoint
+│   │   └── yelp/route.ts      # Yelp processing API endpoint
 │   ├── globals.css            # Global styles
 │   ├── layout.tsx             # Root layout
-│   └── page.tsx               # Main page
+│   └── page.tsx               # Main page component
 ├── components/
 │   ├── CityMap/               # Map components
-│   │   ├── CityMapCore.tsx    # Core map logic
-│   │   ├── HexagonDisplay.tsx # Data visualization
-│   │   ├── MapControls.tsx    # Layer controls
-│   │   └── YelpIntegration.tsx # Yelp UI
-│   └── CityMap.tsx            # Main map component
+│   │   ├── CityMapCore.tsx    # Core map rendering logic
+│   │   ├── HexagonDisplay.tsx # Business data display
+│   │   ├── MapControls.tsx   # Layer visibility controls
+│   │   └── YelpIntegration.tsx # Yelp processing UI
+│   └── CityMap.tsx            # Main map wrapper
 └── lib/
-    ├── geo.ts                 # Geographic utilities
-    ├── yelpSearch.ts          # Yelp API integration
-    ├── hexagonCoverage.ts     # Coverage strategies
-    ├── hexagonProcessor.ts    # Processing pipeline
-    ├── hexagonSplitter.ts     # Subdivision logic
-    ├── apiQuotaManager.ts     # Quota management
-    ├── rateLimiter.ts         # Rate limiting
-    └── overpassStrategies.ts  # Boundary fetching
+    ├── geo.ts                 # Geographic utilities & boundary fetching
+    ├── yelpSearch.ts          # Yelp API integration & search logic
+    ├── hexagonCoverage.ts     # Search point generation strategies
+    ├── hexagonProcessor.ts    # Two-phase processing pipeline
+    ├── hexagonSplitter.ts     # Dense hexagon subdivision logic
+    ├── apiQuotaManager.ts     # Quota tracking & estimation
+    ├── rateLimiter.ts         # Rate limiting implementation
+    └── overpassStrategies.ts  # Overpass API query strategies
 ```
 
-### **Key Design Patterns**
-- **Strategy Pattern**: Multiple Overpass API strategies
-- **Observer Pattern**: Real-time status updates
-- **Factory Pattern**: Hexagon processing pipeline
-- **Command Pattern**: API request management
+## 🌍 Example Cities to Try
+
+- **Miami, FL** - Large city with complex boundary
+- **Key Biscayne, FL** - Island municipality
+- **San Francisco, CA** - Peninsula city
+- **Manhattan, NY** - Dense urban area (will trigger subdivision)
+
+## 📈 Performance Considerations
+
+- **API Efficiency**: Multi-point searches ensure complete coverage
+- **Rate Limiting**: Prevents quota exhaustion
+- **Quota Management**: Real-time tracking and optimization
+- **Error Recovery**: Automatic retry with exponential backoff
+- **Marker Clustering**: Optimized map performance for large datasets
 
 ## 🚀 Deployment
 
 ### **Vercel (Recommended)**
 ```bash
-# Install Vercel CLI
 npm i -g vercel
-
-# Deploy
 vercel
-
-# Set environment variables in Vercel dashboard
-YELP_API_KEY=your_api_key
+# Set YELP_API_KEY in Vercel dashboard
 ```
-
-### **Other Platforms**
-- **Netlify**: Static export with serverless functions
-- **AWS/GCP**: Container deployment with Node.js runtime
-- **Docker**: Containerized deployment option
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License
 
 ## 🙏 Acknowledgments
 
-- [OpenStreetMap](https://www.openstreetmap.org/) contributors for geographic data
+- [OpenStreetMap](https://www.openstreetmap.org/) for geographic data
 - [Nominatim](https://nominatim.org/) for geocoding services
 - [Yelp Fusion API](https://www.yelp.com/developers/documentation/v3) for business data
 - [H3](https://h3geo.org/) for hexagon grid system
 - [Leaflet](https://leafletjs.com/) for mapping capabilities
-- [Next.js](https://nextjs.org/) team for the excellent framework
-
-## 📞 Support
-
-For questions, issues, or contributions:
-- Open an issue on GitHub
-- Check the documentation in the `/docs` folder
-- Review the code comments for implementation details
 
 ---
 
