@@ -122,7 +122,59 @@ async function handleBulkCreate(body: any): Promise<NextResponse> {
     // Convert restaurants to YelpBusiness format (they should already be in this format)
     const yelpBusinesses: YelpBusiness[] = restaurants as YelpBusiness[];
 
-    // Create staging records
+    // 🔧 FIX: Create/update hexagon BEFORE saving restaurants
+    // This ensures the foreign key constraint is satisfied
+    try {
+      const { upsertHextile, getHextileCenter } = await import('@/lib/database/hextiles');
+      const h3 = await import('h3-js');
+      
+      const center = getHextileCenter(h3Id.trim());
+      if (center) {
+        const resolution = h3.getResolution(h3Id.trim());
+        
+        const hextileResult = await upsertHextile({
+          h3_id: h3Id.trim(),
+          city_id: cityId.trim(),
+          status: 'fetched', // Will be updated based on actual save results
+          center_lat: center.lat,
+          center_lng: center.lng,
+          yelp_total_businesses: restaurants.length, // Initial estimate
+          resolution: resolution
+        });
+        
+        if (!hextileResult) {
+          console.error(`❌ Failed to create/update hexagon ${h3Id.trim()}`);
+          return NextResponse.json(
+            {
+              success: false,
+              message: 'Failed to create hexagon tile in database'
+            },
+            { status: 500 }
+          );
+        }
+        
+        console.log(`✅ Created/updated hexagon ${h3Id.trim()} before saving restaurants`);
+      } else {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Failed to get center coordinates for hexagon ${h3Id.trim()}`
+          },
+          { status: 500 }
+        );
+      }
+    } catch (hexError) {
+      console.error(`❌ Failed to create hexagon ${h3Id} (fatal):`, hexError);
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Failed to create hexagon tile - cannot save restaurants without it'
+        },
+        { status: 500 }
+      );
+    }
+
+    // NOW create staging records (hexagon already exists, so foreign key is satisfied)
     const result = await batchCreateYelpStaging(
       yelpBusinesses,
       h3Id.trim(),
@@ -130,14 +182,43 @@ async function handleBulkCreate(body: any): Promise<NextResponse> {
       importLogId.trim()
     );
 
+    // Update hexagon with actual count after save
+    if (result.createdCount > 0) {
+      try {
+        const { upsertHextile, getHextileCenter } = await import('@/lib/database/hextiles');
+        const h3 = await import('h3-js');
+        
+        const center = getHextileCenter(h3Id.trim());
+        if (center) {
+          const resolution = h3.getResolution(h3Id.trim());
+          
+          await upsertHextile({
+            h3_id: h3Id.trim(),
+            city_id: cityId.trim(),
+            status: 'fetched', 
+            center_lat: center.lat,
+            center_lng: center.lng,
+            yelp_total_businesses: result.createdCount, // Update with actual count
+            resolution: resolution
+          });
+          
+          console.log(`✅ Updated hexagon ${h3Id.trim()} with final count: ${result.createdCount} new restaurants`);
+        }
+      } catch (hexError) {
+        // Non-fatal: restaurant saving succeeded, hexagon update is optional
+        console.warn(`⚠️ Failed to update hexagon count ${h3Id} (non-fatal):`, hexError);
+      }
+    }
+
     if (result.createdCount > 0) {
       return NextResponse.json({
         success: true,
-        message: `Successfully created ${result.createdCount} restaurant${result.createdCount === 1 ? '' : 's'} in staging`,
+        message: `Successfully created ${result.createdCount} restaurant${result.createdCount === 1 ? '' : 's'} in staging${result.skippedCount > 0 ? `, ${result.skippedCount} duplicate${result.skippedCount === 1 ? '' : 's'} skipped` : ''}`,
         createdCount: result.createdCount,
         skippedCount: result.skippedCount,
         errorCount: result.errorCount,
-        newBusinesses: result.newBusinesses
+        newBusinesses: result.newBusinesses,
+        duplicates: result.duplicates
       });
     } else {
       return NextResponse.json(
@@ -146,7 +227,8 @@ async function handleBulkCreate(body: any): Promise<NextResponse> {
           message: `Failed to create any restaurants. ${result.skippedCount} duplicates, ${result.errorCount} validation errors`,
           createdCount: result.createdCount,
           skippedCount: result.skippedCount,
-          errorCount: result.errorCount
+          errorCount: result.errorCount,
+          duplicates: result.duplicates
         },
         { status: 400 }
       );

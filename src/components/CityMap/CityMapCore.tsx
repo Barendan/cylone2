@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet.markercluster';
 import type { EnhancedCityResponse } from '@/lib/geography/cityTypes';
 import type { YelpBusiness } from '@/lib/yelp/search';
+import type { YelpTestResult } from './index';
 
 // Fix for default markers in Leaflet
 delete (L.Icon.Default.prototype as { _getIconUrl?: string })._getIconUrl;
@@ -21,6 +22,7 @@ interface CityMapCoreProps {
   showHexagonNumbers: boolean;
   showRestaurants?: boolean;
   restaurants?: YelpBusiness[];
+  restaurantData?: YelpTestResult | null;
   onMapReady: (map: L.Map) => void;
 }
 
@@ -31,6 +33,7 @@ export default function CityMapCore({
   showHexagonNumbers,
   showRestaurants = false,
   restaurants = [],
+  restaurantData = null,
   onMapReady 
 }: CityMapCoreProps) {
   const mapRef = useRef<L.Map | null>(null);
@@ -132,6 +135,16 @@ export default function CityMapCore({
       // Import h3 dynamically to avoid SSR issues
       const h3 = require('h3-js');
       
+      // Create a Set of cached hexagon IDs for quick lookup
+      const cachedHexagonIds = new Set<string>();
+      if (restaurantData?.results) {
+        restaurantData.results.forEach(result => {
+          if (result.status === 'fetched' || result.status === 'dense') {
+            cachedHexagonIds.add(result.h3Id);
+          }
+        });
+      }
+      
       try {
         let renderedCount = 0;
         
@@ -148,11 +161,15 @@ export default function CityMapCore({
             // H3 returns [lng, lat] but Leaflet expects [lat, lng]
             const polygonCoords: [number, number][] = boundary.map((coord: number[]) => [coord[1], coord[0]]); // [lat, lng] for Leaflet
             
+            // Check if this hexagon is cached
+            const isCached = cachedHexagonIds.has(h3Index);
+            
+            // Apply gold outline for cached hexagons, green for others
             const polygon = L.polygon(polygonCoords, {
-              color: '#059669',
-              weight: 2,
+              color: isCached ? '#d97706' : '#059669', // Gold for cached, green for uncached
+              weight: isCached ? 3 : 2, // Slightly thicker for cached hexagons
               opacity: 0.8,
-              fillColor: '#10b981',
+              fillColor: isCached ? '#fbbf24' : '#10b981', // Gold tint for cached, green for uncached
               fillOpacity: 0.15
             });
             
@@ -213,7 +230,7 @@ export default function CityMapCore({
         maxZoom: 18
       });
     }
-  }, [cityData, showBuffered, showH3Grid, showHexagonNumbers]);
+  }, [cityData, showBuffered, showH3Grid, showHexagonNumbers, restaurantData]);
 
   // Restaurant layer management
   useEffect(() => {

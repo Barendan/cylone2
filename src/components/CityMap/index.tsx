@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import L from 'leaflet';
 import type { EnhancedCityResponse } from '@/lib/geography/cityTypes';
 import type { YelpBusiness } from '@/lib/yelp/search';
@@ -40,13 +40,14 @@ interface HexagonResult {
   error?: string;
 }
 
-interface YelpTestResult {
+export interface YelpTestResult {
   success?: boolean;
   results?: HexagonResult[];
   newBusinesses?: Restaurant[]; // Only new restaurants added to staging
   testMode?: boolean;
   processedAt?: string;
   error?: string;
+  fromCache?: boolean; // Flag to indicate data loaded from cache vs fresh search
   importLogId?: string | null; // Import log ID for tracking approved restaurants
   cityId?: string | null; // City ID for creating staging records
   processingStats?: {
@@ -65,10 +66,12 @@ interface YelpTestResult {
 
 interface CityMapProps {
   cityData: EnhancedCityResponse | null;
+  onRestaurantDataChange?: (data: YelpTestResult | null) => void;
 }
 
-export default function CityMap({ cityData }: CityMapProps) {
+export default function CityMap({ cityData, onRestaurantDataChange }: CityMapProps) {
   const mapRef = useRef<L.Map | null>(null);
+  const hasLoadedCacheRef = useRef<string | null>(null); // Track which city we've loaded cache for
   
   // Layer visibility state
   const [showBuffered, setShowBuffered] = useState(true);
@@ -78,6 +81,7 @@ export default function CityMap({ cityData }: CityMapProps) {
 
   // Yelp testing state
   const [yelpResults, setYelpResults] = useState<YelpTestResult | null>(null);
+  const [isLoadingCache, setIsLoadingCache] = useState(false);
 
   // Map ready callback - MUST be memoized to prevent map destruction
   const handleMapReady = useCallback((map: L.Map) => {
@@ -120,7 +124,72 @@ export default function CityMap({ cityData }: CityMapProps) {
   // Handle Yelp results update
   const handleYelpResultsUpdate = (results: YelpTestResult) => {
     setYelpResults(results);
+    // Notify parent component of restaurant data changes
+    onRestaurantDataChange?.(results);
   };
+
+  // Automatically load cached restaurant data when city changes
+  useEffect(() => {
+    // Check if city has cached restaurant data available
+    const hasCachedData = (cityData as any)?.cachedRestaurantData?.available === true;
+    const cityId = (cityData as any)?.city_id;
+    
+    // If city changed (different ID), clear previous results and reset tracking
+    if (cityData && hasLoadedCacheRef.current !== cityId) {
+      setYelpResults(null);
+      onRestaurantDataChange?.(null); // Notify parent that data is cleared
+      hasLoadedCacheRef.current = null;
+    }
+    
+    // Skip if no cached data, no city ID, or we've already loaded this city's cache
+    if (!hasCachedData || !cityId || hasLoadedCacheRef.current === cityId) {
+      return;
+    }
+    
+    // Automatically load cached data
+    const loadCachedData = async () => {
+      setIsLoadingCache(true);
+      hasLoadedCacheRef.current = cityId; // Mark this city as loaded
+      
+      try {
+        console.log('📦 Auto-loading cached restaurants for city:', cityId);
+        
+        const response = await fetch('/api/yelp/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'load_cached',
+            city_id: cityId
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to load cache: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        // Set the results - this will trigger restaurant display on map
+        setYelpResults(result);
+        // Notify parent component of restaurant data changes
+        onRestaurantDataChange?.(result);
+        
+        console.log(`✅ Auto-loaded ${result.processingStats?.totalRequested || 0} cached restaurants`);
+        
+      } catch (error) {
+        console.error('❌ Failed to auto-load cached restaurants:', error);
+        // Reset the ref so user can retry if they want
+        hasLoadedCacheRef.current = null;
+        // Fail silently - don't break the UI
+      } finally {
+        setIsLoadingCache(false);
+      }
+    };
+    
+    loadCachedData();
+  }, [cityData]);
 
   // Recenter map on city boundary
   const recenterMap = () => {
@@ -183,8 +252,8 @@ export default function CityMap({ cityData }: CityMapProps) {
     <div className="space-y-4">
       {/* Map Container - First, at the top */}
       <div 
-        className="relative w-full h-96 rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
-        style={{ minHeight: '384px' }}
+        className="relative w-full rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
+        style={{ height: '500px', minHeight: '500px' }}
       >
         <div 
           id="map" 
@@ -228,6 +297,7 @@ export default function CityMap({ cityData }: CityMapProps) {
         showHexagonNumbers={showHexagonNumbers}
         showRestaurants={showRestaurants}
         restaurants={allRestaurants}
+        restaurantData={yelpResults}
         onMapReady={handleMapReady}
       />
 

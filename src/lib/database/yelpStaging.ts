@@ -53,6 +53,45 @@ export async function checkDuplicateBusiness(
 }
 
 /**
+ * Check multiple businesses for duplicates in a single query
+ * More efficient than calling checkDuplicateBusiness in a loop
+ * Returns map of yelpId -> existing record
+ * 
+ * @param yelpIds - Array of Yelp business IDs to check
+ * @returns Map of yelpId to existing staging record
+ */
+export async function batchCheckDuplicates(
+  yelpIds: string[]
+): Promise<Map<string, YelpStaging>> {
+  try {
+    if (!yelpIds || yelpIds.length === 0) {
+      return new Map();
+    }
+
+    const { data, error } = await supabaseServer
+      .from('yelp_staging')
+      .select('*')
+      .in('id', yelpIds);
+
+    if (error) {
+      console.error('Error batch checking duplicates:', error);
+      return new Map();
+    }
+
+    // Create map of yelpId -> existing record
+    const duplicateMap = new Map<string, YelpStaging>();
+    data?.forEach(record => {
+      duplicateMap.set(record.id, record);
+    });
+
+    return duplicateMap;
+  } catch (error) {
+    console.error('Exception batch checking duplicates:', error);
+    return new Map();
+  }
+}
+
+/**
  * Get all staging businesses for a hexagon
  * Returns array of staging records, or empty array on error
  */
@@ -106,6 +145,15 @@ export async function getStagingBusinessesAsYelpBusinesses(h3Id: string): Promis
 }
 
 /**
+ * Information about duplicate restaurants found during batch create
+ */
+export interface DuplicateInfo {
+  yelpId: string;              // The Yelp business ID (same as DB id)
+  cityId: string;              // City ID of existing record
+  h3Id?: string;               // Hexagon ID of existing record
+}
+
+/**
  * Batch create staging businesses
  * More efficient than individual creates for large batches
  * Validates all businesses before saving - invalid ones are skipped and logged
@@ -116,6 +164,7 @@ export interface BatchCreateStats {
   skippedCount: number;
   errorCount: number;
   newBusinesses: YelpBusiness[]; // Actual businesses that were newly inserted
+  duplicates: DuplicateInfo[];   // Details about each duplicate found
 }
 
 export async function batchCreateYelpStaging(
@@ -137,6 +186,7 @@ export async function batchCreateYelpStaging(
     let skippedCount = 0;
     let errorCount = 0;
     const newBusinesses: YelpBusiness[] = []; // Track businesses that were actually inserted
+    const allDuplicates: DuplicateInfo[] = []; // Track duplicates across all batches
     
     // Process in batches to avoid overwhelming the database
     const batchSize = 50;
@@ -161,16 +211,28 @@ export async function batchCreateYelpStaging(
       
       console.log(`    Validation: ${validBusinesses.length} valid, ${batch.length - validBusinesses.length} invalid`);
       
-      // Step 2: Check for duplicates among valid businesses
-      const existingIds = new Set<string>();
+      // Step 2: Check for duplicates with single batch query
+      const businessIds = validBusinesses.map(b => b.id);
+      const duplicateMap = await batchCheckDuplicates(businessIds);
+
+      // Build duplicate info array
+      const duplicatesInBatch: DuplicateInfo[] = [];
       for (const business of validBusinesses) {
-        const existing = await checkDuplicateBusiness(business.id);
+        const existing = duplicateMap.get(business.id);
         if (existing) {
-          existingIds.add(business.id);
+          duplicatesInBatch.push({
+            yelpId: business.id,
+            cityId: existing.city_id,
+            h3Id: existing.h3_id
+          });
           skippedCount++;
         }
       }
-      
+
+      // Add to overall duplicates list
+      allDuplicates.push(...duplicatesInBatch);
+
+      const existingIds = new Set(duplicateMap.keys());
       console.log(`    Duplicates: ${existingIds.size} found, ${validBusinesses.length - existingIds.size} new`);
       
       // Step 3: Filter out duplicates
@@ -222,7 +284,8 @@ export async function batchCreateYelpStaging(
       createdCount,
       skippedCount,
       errorCount,
-      newBusinesses
+      newBusinesses,
+      duplicates: allDuplicates
     };
   } catch (error) {
     console.error('❌ Exception in batchCreateYelpStaging:', {
@@ -237,7 +300,8 @@ export async function batchCreateYelpStaging(
       createdCount: 0,
       skippedCount: 0,
       errorCount: businesses.length, // Assume all failed on exception
-      newBusinesses: []
+      newBusinesses: [],
+      duplicates: []
     };
   }
 }

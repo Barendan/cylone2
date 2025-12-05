@@ -258,30 +258,11 @@ export async function processHexagons(
             coverageQuality: yelpResult.coverageQuality
           });
           
-          // STEP 3: Save to database cache (graceful degradation)
-          if (cityId) {
-            try {
-              const center = getHextileCenter(h3Id);
-              if (center) {
-                const resolution = h3.getResolution(h3Id);
-                await upsertHextile({
-                  h3_id: h3Id,
-                  city_id: cityId,
-                  status: yelpResult.status === 'split' ? 'dense' : (yelpResult.status === 'failed' ? 'failed' : 'fetched'),
-                  center_lat: center.lat,
-                  center_lng: center.lng,
-                  yelp_total_businesses: yelpResult.totalBusinesses,
-                  resolution: resolution
-                });
-              }
-            } catch (saveError) {
-              // Graceful degradation: continue if save fails
-              console.warn(`Failed to save hextile ${h3Id} to cache (non-fatal):`, saveError);
-            }
-          }
+          // STEP 3: Hexagons are saved when restaurants are approved (see staging API)
+          // This ensures atomic consistency - hexagons only exist if they have approved restaurants
           
-          // STEP 4: Businesses will be saved to staging only when admin approves them
-          // No automatic saving - results are returned to frontend for review
+          // STEP 4: Restaurants AND hexagons saved to database when admin approves (see staging API)
+          // No automatic saving during search - results are returned to frontend for review
           if (yelpResult.uniqueBusinesses && yelpResult.uniqueBusinesses.length > 0) {
             // Track businesses for response (but don't save to staging yet)
             allNewBusinesses.push(...yelpResult.uniqueBusinesses);
@@ -415,29 +396,11 @@ export async function processHexagons(
             
             phase2Results.push(yelpResult);
             
-            // STEP 3: Save to database cache (graceful degradation)
-            if (cityId && yelpResult) {
-              try {
-                const center = getHextileCenter(h3Id);
-                if (center) {
-                  const resolution = h3.getResolution(h3Id);
-                  await upsertHextile({
-                    h3_id: h3Id,
-                    city_id: cityId,
-                    status: yelpResult.status === 'split' ? 'dense' : (yelpResult.status === 'failed' ? 'failed' : 'fetched'),
-                    center_lat: center.lat,
-                    center_lng: center.lng,
-                    yelp_total_businesses: yelpResult.totalBusinesses,
-                    resolution: resolution
-                  });
-                }
-              } catch (saveError) {
-                console.warn(`Failed to save subdivision hextile ${h3Id} to cache (non-fatal):`, saveError);
-              }
-            }
+            // STEP 3: Phase 2 hexagons are saved when restaurants are approved (see staging API)
+            // This ensures atomic consistency - hexagons only exist if they have approved restaurants
             
-            // STEP 4: Businesses will be saved to staging only when admin approves them
-            // No automatic saving - results are returned to frontend for review
+            // STEP 4: Restaurants AND hexagons saved to database when admin approves (see staging API)
+            // No automatic saving during Phase 2 - results are returned to frontend for review
             if (yelpResult.uniqueBusinesses && yelpResult.uniqueBusinesses.length > 0) {
               // Track businesses for response (but don't save to staging yet)
               allNewBusinesses.push(...yelpResult.uniqueBusinesses);

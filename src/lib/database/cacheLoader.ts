@@ -66,6 +66,12 @@ export async function getCachedRestaurantData(cityId: string): Promise<CachedRes
         // Get restaurants from staging table
         const restaurants = await getStagingBusinessesAsYelpBusinesses(hextile.h3_id);
         
+        // Skip hexagons with no restaurants (zombie hexagons from old system)
+        if (restaurants.length === 0) {
+          console.log(`⏭️ Skipping hexagon ${hextile.h3_id} - no restaurants found`);
+          continue;
+        }
+        
         // Track oldest cache date
         const hexCreatedAt = new Date(hextile.created_at);
         if (hexCreatedAt < oldestCacheDate) {

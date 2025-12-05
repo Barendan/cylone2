@@ -42,6 +42,7 @@ interface YelpTestResult {
   testMode?: boolean;
   processedAt?: string;
   error?: string;
+  fromCache?: boolean; // Flag to indicate data loaded from cache vs fresh search
   importLogId?: string | null; // Import log ID for tracking approved restaurants
   cityId?: string | null; // City ID for creating staging records
   processingStats?: {
@@ -55,6 +56,11 @@ interface YelpTestResult {
     duplicatesSkipped?: number;
     validationErrors?: number;
     newRestaurantsCount?: number;
+  };
+  cacheStats?: {
+    actualApiCalls?: number;
+    estimatedTotalApiCalls?: number;
+    lastRestaurantCount?: number;
   };
 }
 
@@ -107,6 +113,7 @@ export default function YelpIntegration({ cityData, onResultsUpdate }: YelpInteg
   } | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const totalHexagonsRef = useRef<number>(0);
+  const [finalApiCalls, setFinalApiCalls] = useState<number | undefined>(undefined);
 
   // Check if we should render - moved after all hooks to follow Rules of Hooks
   const shouldRender = cityData && cityData.h3_grid && cityData.h3_grid.length > 0;
@@ -179,6 +186,7 @@ export default function YelpIntegration({ cityData, onResultsUpdate }: YelpInteg
     
     setYelpTesting(true);
     setProgress(null);
+    setFinalApiCalls(undefined);
     if (mode !== undefined) {
       setTestMode(mode);
     }
@@ -229,6 +237,12 @@ export default function YelpIntegration({ cityData, onResultsUpdate }: YelpInteg
       }
 
       const result = await response.json();
+      
+      // Capture final API call count from the API response, not from progress state
+      if (result.cacheStats?.actualApiCalls !== undefined) {
+        setFinalApiCalls(result.cacheStats.actualApiCalls);
+      }
+      
       setYelpResults(result);
       onResultsUpdate(result);
       
@@ -315,152 +329,158 @@ export default function YelpIntegration({ cityData, onResultsUpdate }: YelpInteg
       <div className="mt-4 p-4 bg-white rounded-lg shadow-md">
         <h3 className="text-lg font-semibold mb-3 text-black">Yelp Integration Testing</h3>
       
-      
-      <div className="space-y-3">
-        
-        {/* API Call Estimation Display */}
-        <div className="mb-3 p-3 bg-orange-50 border border-orange-200 rounded">
-          <p className="text-sm text-orange-800 font-medium mb-2">📊 API Call Estimation:</p>
-          <div className="text-xs text-orange-700 space-y-1">
-            <div className="flex justify-between">
-              <span>Total Hexagons:</span>
-              <span className="font-mono font-medium">{cityData!.h3_grid.length}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Search Points per Hexagon (Resolution 7):</span>
-              <span className="font-mono font-medium">~3 points</span>
-            </div>
-            <div className="flex justify-between">
-              <span>API Calls per Search Point:</span>
-              <span className="font-mono font-medium">~1.2 calls</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Test Mode (10 random hexagons):</span>
-              <span className="font-mono font-medium text-orange-600">
-                ~{calculateAPICalls(10)} API calls
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Real Mode (all hexagons):</span>
-              <span className="font-mono font-medium text-red-600">
-                ~{calculateAPICalls(cityData!.h3_grid.length)} API calls
-              </span>
-            </div>
-
-          </div>
-        </div>
-        
-        {/* Two side-by-side buttons for Test and Real Mode */}
-        <div className="flex gap-3">
-          <button
-            onClick={() => testYelpIntegration(true)}
-            disabled={yelpTesting}
-            className="flex-1 px-6 py-4 bg-gradient-to-br from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 text-gray-900 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center space-y-1.5 transition-all duration-300 font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] border-2 border-yellow-500/30 transform"
-          >
-            {yelpTesting && testMode ? (
-              <>
-                <div className="animate-spin rounded-full h-6 w-6 border-3 border-gray-900 border-t-transparent"></div>
-                <span className="text-base font-bold tracking-wide">Processing...</span>
-              </>
-            ) : (
-              <>
-                <div className="mb-1 p-2 bg-yellow-300/30 rounded-full">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                  </svg>
-                </div>
-                <span className="text-lg font-bold tracking-tight text-gray-900">Test Mode</span>
-                <span className="text-xs font-semibold text-gray-700 bg-yellow-200/50 px-2 py-1 rounded-full">~{calculateAPICalls(10)} calls</span>
-              </>
-            )}
-          </button>
+        <div className="space-y-3">
           
-          <button
-            onClick={() => testYelpIntegration(false)}
-            disabled={yelpTesting}
-            className="flex-1 px-6 py-4 bg-gradient-to-br from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center space-y-1.5 transition-all duration-300 font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] border-2 border-emerald-600/30 transform"
-          >
-            {yelpTesting && !testMode ? (
-              <>
-                <div className="animate-spin rounded-full h-6 w-6 border-3 border-white border-t-transparent"></div>
-                <span className="text-base font-bold tracking-wide">Processing...</span>
-              </>
-            ) : (
-              <>
-                <div className="mb-1 p-2 bg-emerald-400/30 rounded-full">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                    <circle cx="12" cy="10" r="3" />
-                  </svg>
+          {/* Main flex container: buttons on left, helper text on right */}
+          <div className="flex gap-4">
+            {/* Left side: Vertical button stack */}
+            <div className="flex flex-col gap-2" style={{ width: '200px' }}>
+              {/* Row 1: Test Mode button */}
+              <button
+                onClick={() => testYelpIntegration(true)}
+                disabled={yelpTesting}
+                className="w-full px-4 py-2.5 bg-gradient-to-br from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 text-gray-900 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center transition-all duration-200 font-semibold shadow hover:shadow-md border border-yellow-500/30"
+              >
+                {yelpTesting && testMode ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-900 border-t-transparent"></div>
+                    <span className="text-xs font-bold mt-1">Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mb-1">
+                      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                    </svg>
+                    <span className="text-sm font-bold">Test Mode</span>
+                  </>
+                )}
+              </button>
+              
+              {/* Row 2: Real Mode button */}
+              <button
+                onClick={() => testYelpIntegration(false)}
+                disabled={yelpTesting}
+                className="w-full px-4 py-2.5 bg-gradient-to-br from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center transition-all duration-200 font-semibold shadow hover:shadow-md border border-emerald-600/30"
+              >
+                {yelpTesting && !testMode ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span className="text-xs font-bold mt-1">Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="mb-1">
+                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                      <circle cx="12" cy="10" r="3" />
+                    </svg>
+                    <span className="text-sm font-bold">Real Mode</span>
+                  </>
+                )}
+              </button>
+              
+              {/* Row 3: Status and Quota buttons side-by-side */}
+              <div className="flex gap-2">
+                <button
+                  onClick={getProcessingStatus}
+                  className={`flex-1 px-3 py-2 rounded text-sm font-medium hover:opacity-90 transition-colors ${
+                    processingStatus 
+                      ? 'bg-blue-700 text-white' 
+                      : 'bg-blue-600 text-white'
+                  }`}
+                >
+                  {processingStatus ? 'Hide Status' : 'Status'}
+                </button>
+                
+                <button
+                  onClick={getQuotaStatus}
+                  className={`flex-1 px-3 py-2 rounded text-sm font-medium hover:opacity-90 transition-colors ${
+                    quotaStatus 
+                      ? 'bg-purple-700 text-white' 
+                      : 'bg-purple-600 text-white'
+                  }`}
+                >
+                  {quotaStatus ? 'Hide Quota' : 'Quota'}
+                </button>
+              </div>
+            </div>
+            
+            {/* Right side: API Call Estimation Display */}
+            <div className="flex-1 p-3 bg-orange-50 border border-orange-200 rounded">
+              <p className="text-sm text-orange-800 font-medium mb-2">📊 API Call Estimation:</p>
+              <div className="text-xs text-orange-700 space-y-1">
+                <div className="flex justify-between">
+                  <span>Total Hexagons:</span>
+                  <span className="font-mono font-medium">{cityData!.h3_grid.length}</span>
                 </div>
-                <span className="text-lg font-bold tracking-tight text-white">Real Mode</span>
-                <span className="text-xs font-semibold text-emerald-50 bg-emerald-600/40 px-2 py-1 rounded-full">~{calculateAPICalls(cityData.h3_grid.length)} calls</span>
-              </>
-            )}
-          </button>
+                <div className="flex justify-between">
+                  <span>Search Points per Hexagon (Resolution 7):</span>
+                  <span className="font-mono font-medium">~3 points</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>API Calls per Search Point:</span>
+                  <span className="font-mono font-medium">~1.2 calls</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Test Mode (5 random hexagons):</span>
+                  <span className="font-mono font-medium text-orange-600">
+                    ~{calculateAPICalls(5)} API calls
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Real Mode (all hexagons):</span>
+                  <span className="font-mono font-medium text-red-600">
+                    ~{calculateAPICalls(cityData!.h3_grid.length)} API calls
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Actual API Calls (Real Mode):</span>
+                  <span className="font-mono font-medium text-green-600">
+                    {finalApiCalls !== undefined ? finalApiCalls : 'Calculating...'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         
-        <button
-          onClick={getProcessingStatus}
-          className={`px-4 py-2 rounded hover:opacity-90 ml-2 transition-colors ${
-            processingStatus 
-              ? 'bg-blue-700 text-white' 
-              : 'bg-blue-600 text-white'
-          }`}
-        >
-          {processingStatus ? 'Hide Status' : 'Get Status'}
-        </button>
+        {/* Display error if test failed */}
+        {yelpResults && yelpResults.error && (
+          <div className="mt-4 p-4 rounded-lg border bg-red-50 border-red-300">
+            <h4 className="font-medium mb-3 flex items-center text-red-800">
+              ❌ Test Failed
+            </h4>
+            <div className="text-red-700 font-medium bg-red-100 p-3 rounded border border-red-200">
+              {yelpResults.error}
+            </div>
+          </div>
+        )}
         
-        <button
-          onClick={getQuotaStatus}
-          className={`px-4 py-2 rounded hover:opacity-90 ml-2 transition-colors ${
-            quotaStatus 
-              ? 'bg-purple-700 text-white' 
-              : 'bg-purple-600 text-white'
-          }`}
-        >
-          {quotaStatus ? 'Hide Quota' : 'Get Quota'}
-        </button>
-      </div>
-      
-      {/* Display error if test failed */}
-      {yelpResults && yelpResults.error && (
-        <div className="mt-4 p-4 rounded-lg border bg-red-50 border-red-300">
-          <h4 className="font-medium mb-3 flex items-center text-red-800">
-            ❌ Test Failed
-          </h4>
-          <div className="text-red-700 font-medium bg-red-100 p-3 rounded border border-red-200">
-            {yelpResults.error}
+        {/* Display processing status */}
+        {processingStatus && (
+          <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-300">
+            <h4 className="font-medium mb-2 text-blue-800">Processing Status:</h4>
+            <div className="text-sm space-y-1 text-blue-900">
+              <div className="font-medium">📊 Queued: {processingStatus.processingStats?.queued || 0}</div>
+              <div>🔧 Processing: {processingStatus.processingStats?.processing || 0}</div>
+              <div>✅ Completed: {processingStatus.processingStats?.completed || 0}</div>
+              <div>❌ Failed: {processingStatus.processingStats?.failed || 0}</div>
+              <div>�� Split: {processingStatus.processingStats?.split || 0}</div>
+            </div>
           </div>
-        </div>
-      )}
-      
-      {/* Display processing status */}
-      {processingStatus && (
-        <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-300">
-          <h4 className="font-medium mb-2 text-blue-800">Processing Status:</h4>
-          <div className="text-sm space-y-1 text-blue-900">
-            <div className="font-medium">📊 Queued: {processingStatus.processingStats?.queued || 0}</div>
-            <div>🔧 Processing: {processingStatus.processingStats?.processing || 0}</div>
-            <div>✅ Completed: {processingStatus.processingStats?.completed || 0}</div>
-            <div>❌ Failed: {processingStatus.processingStats?.failed || 0}</div>
-            <div>🔀 Split: {processingStatus.processingStats?.split || 0}</div>
+        )}
+        
+        {/* Display quota status */}
+        {quotaStatus && (
+          <div className="mt-4 p-3 bg-yellow-50 rounded border border-yellow-300">
+            <h4 className="font-medium mb-2 text-yellow-800">Quota Status:</h4>
+            <div className="text-sm space-y-1 text-yellow-900">
+              <div className="font-medium">📊 Daily Usage: {quotaStatus.quotaStatus?.dailyUsed || 0}/{quotaStatus.quotaStatus?.dailyLimit || 0}</div>
+              <div>📈 Usage: {quotaStatus.quotaStatus?.dailyUsagePercentage?.toFixed(1) || 0}%</div>
+              <div>⏰ Per Second: {quotaStatus.quotaStatus?.perSecondUsed || 0}/{quotaStatus.quotaStatus?.perSecondLimit || 0}</div>
+              <div>�� Last Reset: {quotaStatus.quotaStatus?.lastReset?.toLocaleString() || 'Unknown'}</div>
+            </div>
           </div>
-        </div>
-      )}
-      
-      {/* Display quota status */}
-      {quotaStatus && (
-        <div className="mt-4 p-3 bg-yellow-50 rounded border border-yellow-300">
-          <h4 className="font-medium mb-2 text-yellow-800">Quota Status:</h4>
-          <div className="text-sm space-y-1 text-yellow-900">
-            <div className="font-medium">📊 Daily Usage: {quotaStatus.quotaStatus?.dailyUsed || 0}/{quotaStatus.quotaStatus?.dailyLimit || 0}</div>
-            <div>📈 Usage: {quotaStatus.quotaStatus?.dailyUsagePercentage?.toFixed(1) || 0}%</div>
-            <div>⏰ Per Second: {quotaStatus.quotaStatus?.perSecondUsed || 0}/{quotaStatus.quotaStatus?.perSecondLimit || 0}</div>
-            <div>🔄 Last Reset: {quotaStatus.quotaStatus?.lastReset?.toLocaleString() || 'Unknown'}</div>
-          </div>
-        </div>
-      )}
+        )}
       </div>
     </>
   );
